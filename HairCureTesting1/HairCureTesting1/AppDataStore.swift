@@ -88,7 +88,9 @@ class AppDataStore {
         seedMindEaseContent()
         seedEngineOutput(userId: userId)
         seedTodaysMealEntries(userId: userId)
+        seedHistoricalMealData(userId: userId)
         seedTodaysPlan(userId: userId)
+        seedHistoricalMindfulData(userId: userId)
         seedSleepAndWater(userId: userId)
         seedHairInsights()
         seedCareTips()
@@ -482,6 +484,57 @@ class AppDataStore {
     }
 
     // ─────────────────────────────────────────────
+    // MARK: 5b — Historical meal data (past 6 days)
+    //            Provides real data for the week ring calendar
+    //            and is the source for the Profile meal log later.
+    // ─────────────────────────────────────────────
+
+    private func seedHistoricalMealData(userId: UUID) {
+        guard let np = userNutritionProfiles.first(where: { $0.userId == userId }) else { return }
+        let cal = Calendar.current
+
+        // (daysAgo, breakfastPct, lunchPct, snackPct, dinnerPct)
+        // Percentages represent how much of the slot target was consumed (0.0–1.3)
+        let dayProfiles: [(Int, Float, Float, Float, Float)] = [
+            (1, 0.95, 1.00, 0.90, 1.05),   // yesterday — full day
+            (2, 0.80, 0.95, 0.75, 0.85),   // 2 days ago
+            (3, 1.10, 0.90, 1.00, 0.95),   // 3 days ago — slightly over breakfast
+            (4, 0.60, 1.00, 0.85, 0.90),   // 4 days ago — light breakfast
+            (5, 0.90, 0.80, 0.70, 0.95),   // 5 days ago
+            (6, 0.85, 1.05, 0.90, 0.80),   // 6 days ago
+        ]
+
+        let slots: [(MealType, Float)] = [
+            (.breakfast, np.breakfastCalTarget),
+            (.lunch,     np.lunchCalTarget),
+            (.snack,     np.snackCalTarget),
+            (.dinner,    np.dinnerCalTarget)
+        ]
+
+        for (daysAgo, bPct, lPct, sPct, dPct) in dayProfiles {
+            guard let pastDate = cal.date(byAdding: .day, value: -daysAgo, to: Date()) else { continue }
+            let dayStart = cal.startOfDay(for: pastDate)
+
+            let pcts: [Float] = [bPct, lPct, sPct, dPct]
+            for (idx, (mealType, target)) in slots.enumerated() {
+                let consumed = (target * pcts[idx]).rounded()
+                let loggedTime = cal.date(byAdding: .hour, value: [8, 13, 16, 20][idx], to: dayStart) ?? dayStart
+                let status: MealGoalStatus = consumed < target * 0.70 ? .under
+                                           : consumed <= target * 1.10 ? .met : .exceeded
+                mealEntries.append(MealEntry(
+                    id: UUID(), userId: userId, mealType: mealType,
+                    date: dayStart, isLogged: true, loggedAt: loggedTime,
+                    calorieTarget: target, caloriesConsumed: consumed,
+                    proteinConsumed: consumed * 0.15 / 4,
+                    carbsConsumed:   consumed * 0.50 / 4,
+                    fatConsumed:     consumed * 0.30 / 9,
+                    goalStatus: status
+                ))
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────
     // MARK: 6 — MindEase categories & sessions
     // ─────────────────────────────────────────────
 
@@ -563,18 +616,76 @@ class AppDataStore {
     // ─────────────────────────────────────────────
 
     private func seedTodaysPlan(userId: UUID) {
-        guard let plan = userPlans.first(where: { $0.userId == userId }),
-              let meditationCat = mindEaseCategories.first(where: { $0.title == "Meditation" }),
-              let firstSession = mindEaseCategoryContents.first(where: { $0.categoryId == meditationCat.id })
-        else { return }
+        guard let plan = userPlans.first(where: { $0.userId == userId }) else { return }
+        let today = Date()
 
-        todaysPlans.append(TodaysPlan(
-            id: UUID(), userId: userId, planDate: Date(),
-            contentId: firstSession.id, categoryId: meditationCat.id,
-            planId: plan.planId,
-            minutesTarget: plan.meditationMinutesPerDay,
-            minutesCompleted: 0, orderIndex: 1, isCompleted: false
-        ))
+        // 1 — Bhramari Pranayama (Meditation, Beginner)
+        if let cat = mindEaseCategories.first(where: { $0.title == "Meditation" }),
+           let session = mindEaseCategoryContents.first(where: { $0.categoryId == cat.id }) {
+            todaysPlans.append(TodaysPlan(
+                id: UUID(), userId: userId, planDate: today,
+                contentId: session.id, categoryId: cat.id, planId: plan.planId,
+                minutesTarget: plan.meditationMinutesPerDay,
+                minutesCompleted: 0, orderIndex: 1, isCompleted: false))
+        }
+
+        // 2 — Balayam Yoga (Yoga, Beginner)
+        if let cat = mindEaseCategories.first(where: { $0.title == "Yoga" }),
+           let session = mindEaseCategoryContents.first(where: { $0.categoryId == cat.id }) {
+            todaysPlans.append(TodaysPlan(
+                id: UUID(), userId: userId, planDate: today,
+                contentId: session.id, categoryId: cat.id, planId: plan.planId,
+                minutesTarget: plan.yogaMinutesPerDay,
+                minutesCompleted: 0, orderIndex: 2, isCompleted: false))
+        }
+
+        // 3 — Forest Rain (Relaxing Sounds)
+        if let cat = mindEaseCategories.first(where: { $0.title == "Relaxing Sounds" }),
+           let session = mindEaseCategoryContents.first(where: { $0.categoryId == cat.id }) {
+            todaysPlans.append(TodaysPlan(
+                id: UUID(), userId: userId, planDate: today,
+                contentId: session.id, categoryId: cat.id, planId: plan.planId,
+                minutesTarget: 20, minutesCompleted: 0, orderIndex: 3, isCompleted: false))
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // MARK: 7b — Historical mindful sessions (past 6 days)
+    //            Powers the purple week ring calendar in MindEaseView
+    // ─────────────────────────────────────────────
+
+    private func seedHistoricalMindfulData(userId: UUID) {
+        guard let firstContent = mindEaseCategoryContents.first else { return }
+        let cal = Calendar.current
+        let raw    = Double(dailyMindfulTarget)
+        let target = min(60.0, max(15.0, raw))
+
+        // daysAgo → fractional completion (0 = skipped)
+        let dayData: [(Int, Double)] = [
+            (1, 1.00),   // yesterday — full
+            (2, 0.80),   // 2 days ago
+            (3, 0.95),   // 3 days ago
+            (4, 0.00),   // 4 days ago — rest day (no ring fill)
+            (5, 0.70),   // 5 days ago
+            (6, 0.90)    // 6 days ago
+        ]
+
+        for (daysAgo, fraction) in dayData {
+            guard fraction > 0,
+                  let pastDate = cal.date(byAdding: .day, value: -daysAgo, to: Date())
+            else { continue }
+
+            let dayStart  = cal.startOfDay(for: pastDate)
+            let startTime = cal.date(byAdding: .hour, value: 7, to: dayStart) ?? dayStart
+            let minutes   = Int((target * fraction).rounded())
+            let endTime   = cal.date(byAdding: .minute, value: minutes, to: startTime) ?? startTime
+
+            mindfulSessions.append(MindfulSession(
+                id: UUID(), userId: userId, contentId: firstContent.id,
+                sessionDate: dayStart, minutesCompleted: minutes,
+                startTime: startTime, endTime: endTime
+            ))
+        }
     }
 
     // ─────────────────────────────────────────────
@@ -752,8 +863,22 @@ class AppDataStore {
         userNutritionProfiles.first(where: { $0.userId == currentUserId })
     }
 
+//    var latestScanReport: ScanReport? {
+//        scanReports
+//            .filter { r in scalpScans.contains(where: { $0.id == r.scalpScanId && $0.userId == currentUserId }) }
+//            .sorted(by: { $0.createdAt > $1.createdAt })
+//            .first
+//    }
     var latestScanReport: ScanReport? {
-        scanReports
+        // Always follow the active plan's scanReportId first —
+        // this guarantees the report matches what the engine just wrote,
+        // even when timestamps are identical (e.g. seed + live run same launch).
+        if let plan = activePlan,
+           let linked = scanReports.first(where: { $0.id == plan.scanReportId }) {
+            return linked
+        }
+        // Fallback: sort by date if no active plan exists yet
+        return scanReports
             .filter { r in scalpScans.contains(where: { $0.id == r.scalpScanId && $0.userId == currentUserId }) }
             .sorted(by: { $0.createdAt > $1.createdAt })
             .first
@@ -765,6 +890,44 @@ class AppDataStore {
             $0.userId == currentUserId &&
             Calendar.current.startOfDay(for: $0.date) == today
         }.sorted(by: { $0.mealType.caloriePercent > $1.mealType.caloriePercent })
+    }
+
+    /// Returns all meal entries for a given date — used by calendar rings and Profile meal log.
+    func mealEntries(for date: Date) -> [MealEntry] {
+        let dayStart = Calendar.current.startOfDay(for: date)
+        return mealEntries.filter {
+            $0.userId == currentUserId &&
+            Calendar.current.startOfDay(for: $0.date) == dayStart
+        }.sorted(by: { $0.mealType.displayOrder < $1.mealType.displayOrder })
+    }
+
+    /// Total logged calories for a given date
+    func totalCalories(for date: Date) -> Float {
+        mealEntries(for: date).reduce(0) { $0 + $1.caloriesConsumed }
+    }
+
+    /// Total calorie target for a given date
+    func totalCalorieTarget(for date: Date) -> Float {
+        mealEntries(for: date).reduce(0) { $0 + $1.calorieTarget }
+    }
+
+    // MARK: - MindEase helpers
+
+    /// Mindful minutes completed on a given date
+    func mindfulMinutes(for date: Date) -> Int {
+        let dayStart = Calendar.current.startOfDay(for: date)
+        return mindfulSessions
+            .filter {
+                $0.userId == currentUserId &&
+                Calendar.current.startOfDay(for: $0.sessionDate) == dayStart
+            }
+            .reduce(0) { $0 + $1.minutesCompleted }
+    }
+
+    /// Daily mindful target from the user's active plan (yoga + meditation + sounds minutes)
+    var dailyMindfulTarget: Int {
+        guard let plan = userPlans.first(where: { $0.userId == currentUserId }) else { return 30 }
+        return plan.meditationMinutesPerDay + plan.yogaMinutesPerDay + plan.soundMinutesPerDay
     }
 
     func foods(for mealType: MealType, vegetarianOnly: Bool = false) -> [Food] {
@@ -842,6 +1005,32 @@ class AppDataStore {
     func removeFood(mealFoodId: UUID, from mealEntryId: UUID) {
         mealFoods.removeAll(where: { $0.id == mealFoodId })
         updateMealEntryTotals(mealEntryId: mealEntryId)
+    }
+
+    func incrementFood(mealFoodId: UUID, mealEntryId: UUID) {
+        guard let idx = mealFoods.firstIndex(where: { $0.id == mealFoodId }) else { return }
+        mealFoods[idx].quantity += 1
+        updateMealEntryTotals(mealEntryId: mealEntryId)
+    }
+
+    /// Decrements quantity by 1; removes the MealFood entirely when quantity would drop to 0.
+    func decrementOrRemoveFood(mealFoodId: UUID, mealEntryId: UUID) {
+        guard let idx = mealFoods.firstIndex(where: { $0.id == mealFoodId }) else { return }
+        if mealFoods[idx].quantity > 1 {
+            mealFoods[idx].quantity -= 1
+            updateMealEntryTotals(mealEntryId: mealEntryId)
+        } else {
+            removeFood(mealFoodId: mealFoodId, from: mealEntryId)
+        }
+    }
+
+    /// If the food is already in the meal, increments quantity; otherwise adds a new MealFood.
+    func addOrIncrementFood(_ food: Food, to mealEntryId: UUID) {
+        if let existing = mealFoods.first(where: { $0.mealEntryId == mealEntryId && $0.foodId == food.id }) {
+            incrementFood(mealFoodId: existing.id, mealEntryId: mealEntryId)
+        } else {
+            addFood(food, to: mealEntryId)
+        }
     }
 
     func mealGoalMessage(for entry: MealEntry) -> String {

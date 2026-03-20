@@ -30,6 +30,9 @@ struct FallbackAssessmentView: View {
     let onComplete: () -> Void
 
     @Environment(AppDataStore.self) private var store
+    
+    @State private var pendingScalp:   ScalpCondition  = .normal
+    @State private var pendingDensity: HairDensityLevel = .medium
 
     @State private var currentIndex    = 0
     @State private var stageOptionId:  UUID? = nil
@@ -261,6 +264,10 @@ struct FallbackAssessmentView: View {
         case .referDoctor(let msg):
             doctorMessage   = msg
             showDoctorAlert = true
+            
+            // Store scalp + density so we can use them after "Understood"
+                pendingScalp    = scalp
+                pendingDensity  = density
         default:
             onComplete()
         }

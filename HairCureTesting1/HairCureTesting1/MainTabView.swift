@@ -118,7 +118,7 @@ struct MainTabView: View {
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(0)
 
-            PlaceholderTabView(title: "Wellness", icon: "leaf.fill", color: Color(red: 0.2, green: 0.65, blue: 0.4))
+            WellnessView()
                 .tabItem { Label("Wellness", systemImage: "leaf.fill") }
                 .tag(1)
 

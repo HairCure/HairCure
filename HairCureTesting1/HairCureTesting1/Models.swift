@@ -317,7 +317,14 @@ enum MealType: String, Codable, CaseIterable {
     case snack
     case dinner
 
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .breakfast: return "Breakfast"
+        case .lunch:     return "Lunch"
+        case .snack:     return "Snacks"
+        case .dinner:    return "Dinner"
+        }
+    }
 
     var caloriePercent: Float {
         switch self {
@@ -330,10 +337,10 @@ enum MealType: String, Codable, CaseIterable {
 
     var recommendedPortionText: String {
         switch self {
-        case .breakfast: return "Recommended portion: 25% of daily consumption"
-        case .lunch:     return "Recommended portion: 35% of daily consumption"
-        case .snack:     return "Recommended portion: 15% of daily consumption"
-        case .dinner:    return "Recommended portion: 25% of daily consumption"
+        case .breakfast: return "Recommended portion : 25% of daily consumption"
+        case .lunch:     return "Recommended portion : 35% of daily consumption"
+        case .snack:     return "Recommended portion : 20% of daily consumption"
+        case .dinner:    return "Recommended portion : 20% of daily consumption"
         }
     }
 }
